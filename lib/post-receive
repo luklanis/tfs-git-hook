@@ -4,27 +4,32 @@ from tfs import TfsClientService
 import git, re, sys
 
 class TFSGitHook(object):
-    authors = set()
-    item_ids = set()
     
     def __init__(self, revisions, config):
         self.client = TfsClientService(config['host'], config['username'], config['password'], None, None)
-        self.processHistory(revisions)
+        self.revisions = self.processHistory(revisions)
+        self.config = config
         
     def processHistory(self, revisions):
         bugRegex = re.compile(r'#([0-9]+)')
+        revs = []
         
         for revision in revisions:
-            self.authors.add(revision["name"])
+            prop = { 'id': revision['id'], 'name': revision['name'], 'message': revision['message'] }
             
-            matches = bugRegex.findall(revision["message"])
+            matches = bugRegex.findall(revision['message'])
             
             if matches is None:
                 continue
+
+            prop['item_ids'] = set()
             
             for id in matches:
-                self.item_ids.add(id)
-        
+                prop['item_ids'].add(id)
+
+            revs.append(prop)
+
+        return revs
         
     def getWorkItem(self, id):
         result = self.client.getWorkItem(id)
@@ -35,13 +40,22 @@ class TFSGitHook(object):
                 return int(revision), state    
         return None, None
         
-    def addComment(self, comment):
-        for id in self.item_ids:        
-            (revision, state) = self.getWorkItem(id)
-            authors = ', '.join(self.authors) 
+    def addComments(self):
+        for revision in self.revisions:        
+            if revision['item_ids'] == None:
+                continue
+
+            print("link for %s" % revision['id'])
+            for id in revision['item_ids']:
+                (rev, state) = self.getWorkItem(id)
             
-            if revision != None:
-                self.client.addWorkItemComment(id, revision, "{0}: {1}".format(authors, comment))
+                if rev != None:
+                    self.client.addWorkItemComment(id, rev, 
+                        "{0}: {1} ({2};a=commit;h={3})".format(
+                        revision['name'], 
+                        revision['message'], 
+                        self.config['weblink'], 
+                        revision['id']))
     
 if __name__ == '__main__':
     for line in sys.stdin.xreadlines():
@@ -49,10 +63,11 @@ if __name__ == '__main__':
         revisions = git.get_revisions(old, new)
         
         config = { 
-            'host': "http://localhost:8080", 
-            'username' : "", 
-            'password': ""
+            'host': git.get_config('tfs-git-hook.host'), 
+            'username' : git.get_config('tfs-git-hook.username'), 
+            'password': git.get_config('tfs-git-hook.password'),
+            'weblink': git.get_config('tfs-git-hook.weblink')
         }
         
         tfs = TFSGitHook(revisions, config)
-        tfs.addComment("Fixed in revision {}.".format(new))
+        tfs.addComments()

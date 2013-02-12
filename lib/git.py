@@ -18,6 +18,20 @@ import subprocess, re
 
 EMAIL_RE = re.compile("^(.*) <(.*)>$")
 
+def git(args):
+    args = ['git'] + args
+    git = subprocess.Popen(args, stdout = subprocess.PIPE)
+    details = git.stdout.read()
+    details = details.strip()
+    return details
+
+def get_config(key):
+    details = git(['config', '%s' % (key)])
+    if len(details) > 0:
+        return details
+    else:
+        return None
+
 def get_revisions(old, new):
     git = subprocess.Popen([r"git", 'rev-list', '--pretty=medium', r'%s..%s' % (old, new)], stdout=subprocess.PIPE)
     sections = git.stdout.read().split('\n\n')[:-1]
